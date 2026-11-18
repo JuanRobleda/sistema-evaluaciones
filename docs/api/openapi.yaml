@@ -1,6 +1,276 @@
 openapi: 3.0.3
 info:
-  title: Sistema Integrado de Evaluaciones
-  version: 0.0.0
-  description: Esqueleto documental; todavía no hay endpoints REST de negocio aprobados.
-paths: {}
+  title: Sistema Integrado de Evaluaciones - GEN-02-BE
+  version: 0.1.0-draft
+  description: >-
+    Contrato experimental E3/E4. Solo se habilita con el perfil gen02-draft.
+    Modalidad, estados, errores adicionales y alcance requieren conciliación.
+    No acredita aprobación documental ni autenticación institucional integrada.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Desarrollo local
+security:
+  - localBasic: []
+paths:
+  /api/v1/evaluaciones:
+    post:
+      operationId: crearEvaluacion
+      summary: Crear una evaluación sin iniciar los relojes de subprueba
+      description: >-
+        Requiere ASIGNAR_APLICACION y alcance explícito sobre sujeto y período;
+        solo ACADEMICO o COORDINADOR. Una asignación abierta duplicada devuelve
+        409 EVALUACION_EN_CURSO con su identidad. No implementa Idempotency-Key.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IniciarEvaluacionRequest'
+      responses:
+        '201':
+          description: Evaluación creada de forma atómica
+          headers:
+            Location:
+              description: Ruta de la evaluación creada
+              schema:
+                type: string
+                example: /api/v1/evaluaciones/15
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluacionResponse'
+        '400':
+          $ref: '#/components/responses/SolicitudInvalida'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          description: TEST_NO_ENCONTRADO, SUJETO_NO_ENCONTRADO, PERIODO_NO_ENCONTRADO o VERSION_NO_ENCONTRADA
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorApi'
+        '409':
+          description: VERSION_NO_PUBLICADA, EVALUACION_EN_CURSO, LETRA_NO_ASIGNADA, PERIODO_INACTIVO o REASIGNACION_NO_AUTORIZADA
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorApi'
+        '422':
+          description: VERSION_INCOMPATIBLE, SUBPRUEBA_NO_INCLUIDA o MODALIDAD_NO_SOPORTADA
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorApi'
+  /api/v1/evaluaciones/{id}:
+    get:
+      operationId: recuperarEvaluacion
+      summary: Consultar estado persistido y reloj oficial
+      description: >-
+        Requiere EVALUACION_LEER y alcance explícito. No crea otro intento ni
+        modifica inicio o vencimiento. La consulta no concede RECUPERAR_INTENTO
+        ni permiso para responder. Respuestas y posición requieren integración E6/E7.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+      responses:
+        '200':
+          description: Estado actual, con vencimientos reconciliados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvaluacionResponse'
+        '400':
+          $ref: '#/components/responses/SolicitudInvalida'
+        '401':
+          $ref: '#/components/responses/NoAutenticado'
+        '403':
+          $ref: '#/components/responses/SinPermiso'
+        '404':
+          description: EVALUACION_NO_ENCONTRADA
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorApi'
+components:
+  securitySchemes:
+    localBasic:
+      type: http
+      scheme: basic
+      description: >-
+        Adaptador exclusivamente local opcional con GEN02_LOCAL_USER y
+        GEN02_LOCAL_PASSWORD. También admite Principal autenticado por el contenedor.
+        Sustituir por la autenticación común antes de integrar.
+  responses:
+    SolicitudInvalida:
+      description: SOLICITUD_INVALIDA
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorApi'
+    NoAutenticado:
+      description: NO_AUTENTICADO
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorApi'
+    SinPermiso:
+      description: SIN_PERMISO
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorApi'
+  schemas:
+    IniciarEvaluacionRequest:
+      type: object
+      required: [versionFormularioId, sujetoId, periodoId, modalidad]
+      properties:
+        testId:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+          description: Opcional; debe coincidir con el test de la edición
+        versionFormularioId:
+          type: integer
+          format: int64
+          minimum: 1
+        sujetoId:
+          type: integer
+          format: int64
+          minimum: 1
+        periodoId:
+          type: integer
+          format: int64
+          minimum: 1
+        modalidad:
+          type: string
+          enum: [INDIVIDUAL, COLECTIVA]
+          description: COLECTIVA devuelve 422 hasta resolver D02
+        subpruebas:
+          type: array
+          nullable: true
+          minItems: 1
+          uniqueItems: true
+          description: Ausente o null incluye toda la edición; lista explícita no vacía
+          items:
+            type: string
+            minLength: 1
+        fluidez:
+          type: object
+          nullable: true
+          required: [letraInicial]
+          properties:
+            letraInicial:
+              type: string
+              pattern: '^[A-ZÑ]$'
+              description: Obligatoria si se incluye FV en este borrador; sin asignación previa integrada
+    EvaluacionResponse:
+      type: object
+      required: [id, testId, versionFormularioId, sujetoId, periodoId, modalidad, alcance, estado, fechaInicio, fechaFin, subpruebaActiva, siguienteConfiguracion, subpruebas]
+      properties:
+        id:
+          type: integer
+          format: int64
+        testId:
+          type: integer
+          format: int64
+        versionFormularioId:
+          type: integer
+          format: int64
+        sujetoId:
+          type: integer
+          format: int64
+        periodoId:
+          type: integer
+          format: int64
+        modalidad:
+          type: string
+          enum: [INDIVIDUAL]
+        alcance:
+          type: string
+          enum: [COMPLETA, PARCIAL]
+        estado:
+          type: string
+          enum: [EN_CURSO, FINALIZADA]
+        fechaInicio:
+          type: string
+          format: date-time
+          description: Creación global; no es el inicio del reloj formal de una subprueba
+        fechaFin:
+          type: string
+          format: date-time
+          nullable: true
+        subpruebaActiva:
+          type: object
+          nullable: true
+          required: [codigo, configuracionSubpruebaId, inicio, finLimite, segundosRestantes]
+          properties:
+            codigo:
+              type: string
+            configuracionSubpruebaId:
+              type: integer
+              format: int64
+            inicio:
+              type: string
+              format: date-time
+            finLimite:
+              type: string
+              format: date-time
+            segundosRestantes:
+              type: integer
+              format: int64
+              minimum: 0
+        siguienteConfiguracion:
+          type: object
+          nullable: true
+          description: Candidata en orden para preparación; no autoriza el inicio ni confirma ventanas/señales
+          required: [configuracionSubpruebaId, codigo, orden]
+          properties:
+            configuracionSubpruebaId:
+              type: integer
+              format: int64
+            codigo:
+              type: string
+            orden:
+              type: integer
+        subpruebas:
+          type: array
+          items:
+            type: object
+            required: [codigo, configuracionSubpruebaId, orden, estado]
+            properties:
+              codigo:
+                type: string
+              configuracionSubpruebaId:
+                type: integer
+                format: int64
+              orden:
+                type: integer
+              estado:
+                type: string
+                enum: [PENDIENTE, ACTIVA, CERRADA]
+    ErrorApi:
+      type: object
+      required: [timestamp, status, codigo, mensaje, ruta, detalles]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+        codigo:
+          type: string
+        mensaje:
+          type: string
+        ruta:
+          type: string
+        detalles:
+          type: object
+          additionalProperties: true

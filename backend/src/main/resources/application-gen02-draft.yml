@@ -1,0 +1,9 @@
+# Solo desarrollo local, hasta conciliar DOC-03/DOC-05 e integrar el núcleo común.
+spring:
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:gen02/schema-draft.sql
+
+server:
+  address: 127.0.0.1
